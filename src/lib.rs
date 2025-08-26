@@ -669,7 +669,7 @@ fn get_client(config: &CondaMirrorConfig) -> miette::Result<ClientWithMiddleware
     ));
 
     client_builder = client_builder.with(RetryTransientMiddleware::new_with_policy(
-        ExponentialBackoff::builder().build_with_max_retries(3),
+        ExponentialBackoff::builder().build_with_max_retries(config.max_retries.into()),
     ));
 
     let authenticated_client = client_builder.build();
