@@ -21,8 +21,10 @@ use std::{
     path::PathBuf,
     sync::Arc,
     time::Duration,
+    fs::File,
+    io::prelude::*
 };
-use tokio::{io::AsyncReadExt, sync::Semaphore};
+use tokio::{io::AsyncReadExt, sync::{Mutex, Semaphore}};
 
 pub mod config;
 use config::{CondaMirrorConfig, MirrorMode};
@@ -379,6 +381,8 @@ async fn dispatch_tasks_add(
             tasks.push(tokio::spawn(task));
         }
 
+        let failed_packages: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
         let mut results = Vec::new();
         while let Some(join_result) = tasks.next().await {
             match join_result {
@@ -391,7 +395,7 @@ async fn dispatch_tasks_add(
                         console::style("Failed to add packages in").red(),
                         console::style(subdir.as_str()).dim()
                     ));
-                    return Err(e);
+                    failed_packages.lock().await.push((subdir.to_string(), e.to_string()));
                 }
                 Err(join_err) => {
                     tasks.clear();
@@ -415,7 +419,24 @@ async fn dispatch_tasks_add(
             console::style("Finished adding packages in").green(),
             subdir.as_str()
         ));
+
+        if failed_packages.lock().await.len() > 0 {
+            let filename = format!("./failed_packages__{}.txt", subdir.as_str());
+
+            let mut failed_file = File::open(filename).unwrap();
+
+            {
+                let packages = failed_packages.lock().await;                
+                for failed_package in packages.iter() {
+                    failed_file.write_fmt(format_args!("{}", failed_package.1));
+                }
+            }
+
+            return Err(miette::miette!("Failed to mirror {} packages.", failed_packages.lock().await.len()))
+        }
+
     }
+
     Ok(())
 }
 
