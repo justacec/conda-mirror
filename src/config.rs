@@ -33,7 +33,7 @@ pub struct CliConfig {
     pub config: Option<PathBuf>,
 
     /// Maximum number of retires
-    #[arg(short = 'm', long, default_value_t = 10, value_parser = clap::builder::PossibleValuesParser::new(["1", "30"]))]
+    #[arg(short = 'm', long, default_value_t = 10)]
     pub max_retries: u8,
 
     /// The S3 endpoint URL.
