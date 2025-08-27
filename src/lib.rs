@@ -423,7 +423,7 @@ async fn dispatch_tasks_add(
         if failed_packages.lock().await.len() > 0 {
             let filename = format!("./failed_packages__{}.txt", subdir.as_str());
 
-            let mut failed_file = File::open(filename).unwrap();
+            let mut failed_file = File::create(filename).unwrap();
 
             {
                 let packages = failed_packages.lock().await;                
