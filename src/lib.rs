@@ -5,7 +5,7 @@ use opendal::{Configurator, Operator, layers::RetryLayer};
 use rattler_conda_types::{
     ChannelConfig, NamedChannelOrUrl, PackageRecord, Platform, RepoData, package::ArchiveType,
 };
-use rattler_digest::{Sha256Hash, compute_bytes_digest};
+use rattler_digest::{compute_bytes_digest, Md5, Sha256Hash};
 use rattler_index::write_repodata;
 use rattler_networking::{
     Authentication, AuthenticationMiddleware, AuthenticationStorage, S3Middleware,
@@ -25,6 +25,9 @@ use std::{
     io::prelude::*
 };
 use tokio::{io::AsyncReadExt, sync::{Mutex, Semaphore}};
+use generic_array::{typenum::U16, ArrayLength, GenericArray};
+use hex::decode;
+use std::convert::TryInto;
 
 pub mod config;
 use config::{CondaMirrorConfig, MirrorMode};
@@ -320,10 +323,12 @@ async fn dispatch_tasks_add(
         .unwrap()
         .progress_chars("##-");
         pb.set_style(sty);
+        pb.set_message(format!("Mirroring subdirectory {}", subdir.as_str()));
         let packages_to_add_len = packages_to_add.len();
 
         let pb = pb.clone();
         for (filename, package_record) in packages_to_add {
+            let mpb = progress.clone();
             let pb = pb.clone();
             let semaphore = semaphore.clone();
             let config = config.clone();
@@ -334,46 +339,67 @@ async fn dispatch_tasks_add(
                     .acquire()
                     .await
                     .expect("Semaphore was unexpectedly closed");
-                pb.set_message(format!(
+                let mut local_progresss_spinner = mpb.insert_after(&pb, ProgressBar::new_spinner());
+                local_progresss_spinner.set_message(format!(
                     "Mirroring {} {}",
                     subdir.as_str(),
                     console::style(&filename).dim()
                 ));
 
-                // use rattler client for downloading the package
-                let package_url = config.package_url(filename.as_str(), subdir)?;
-                let mut buf = Vec::new();
-                if package_url.scheme() == "file" {
-                    let path = package_url.to_file_path().unwrap();
-                    let mut file = tokio::fs::File::open(path).await.into_diagnostic()?;
-                    file.read_to_end(&mut buf).await.into_diagnostic()?;
-                } else {
-                    let response = client.get(package_url).send().await.into_diagnostic()?;
-                    let bytes = response.bytes().await.into_diagnostic()?;
-                    buf.extend_from_slice(&bytes);
-                };
-                tracing::debug!("Downloaded package {} with {} bytes", filename, buf.len());
+                // set the destintiion path so we can use it to see if this is
+                // already downloaded
+                let destination_path = format!("{}/{}", subdir.as_str(), filename);
 
-                let expected_digest = package_record.sha256;
-                if let Some(expected_digest) = expected_digest {
-                    let digest: Sha256Hash = compute_bytes_digest::<sha2::Sha256>(&buf);
-                    if expected_digest != digest {
-                        return Err(miette::miette!(
-                            "Digest of {} does not match: {:x} != {:x}",
-                            filename,
-                            expected_digest,
-                            digest
-                        ));
+                let mut needs_download = true;
+                if let Some(md5) = package_record.md5 {
+                    if let Ok(metadata) = op.stat(&destination_path).await {
+                        if let Some(dest_md5) = metadata.content_md5() {
+                            let dest_md5_array: GenericArray<u8, U16> = GenericArray::clone_from_slice(&hex::decode(dest_md5).unwrap());
+                            if dest_md5_array == md5 {
+                                needs_download = false;
+                                tracing::debug!("Skipping the download of {} package from the {} subdir", filename, subdir.as_str())
+                            }
+                        }
                     }
                 }
-                tracing::debug!("Verified SHA256 of {}", filename);
 
-                // use opendal to upload the package
-                let destination_path = format!("{}/{}", subdir.as_str(), filename);
-                op.write(destination_path.as_str(), buf)
-                    .await
-                    .into_diagnostic()?;
+                if needs_download == true {
+                    // use rattler client for downloading the package
+                    let package_url = config.package_url(filename.as_str(), subdir)?;
+                    let mut buf = Vec::new();
+                    if package_url.scheme() == "file" {
+                        let path = package_url.to_file_path().unwrap();
+                        let mut file = tokio::fs::File::open(path).await.into_diagnostic()?;
+                        file.read_to_end(&mut buf).await.into_diagnostic()?;
+                    } else {
+                        let response = client.get(package_url).send().await.into_diagnostic()?;
+                        let bytes = response.bytes().await.into_diagnostic()?;
+                        buf.extend_from_slice(&bytes);
+                    };
+                    tracing::debug!("Downloaded package {} with {} bytes", filename, buf.len());
 
+                    let expected_digest = package_record.sha256;
+                    if let Some(expected_digest) = expected_digest {
+                        let digest: Sha256Hash = compute_bytes_digest::<sha2::Sha256>(&buf);
+                        if expected_digest != digest {
+                            return Err(miette::miette!(
+                                "Digest of {} does not match: {:x} != {:x}",
+                                filename,
+                                expected_digest,
+                                digest
+                            ));
+                        }
+                    }
+                    tracing::debug!("Verified SHA256 of {}", filename);
+
+                    // use opendal to upload the package
+                    let destination_path = format!("{}/{}", subdir.as_str(), filename);
+                    op.write(destination_path.as_str(), buf)
+                        .await
+                        .into_diagnostic()?;
+                }
+
+                mpb.remove(&local_progresss_spinner);
                 pb.inc(1);
                 let res: miette::Result<()> = Ok(());
                 res
