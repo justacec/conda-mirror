@@ -124,7 +124,7 @@ pub async fn mirror(config: CondaMirrorConfig) -> miette::Result<()> {
     let subdirs = get_subdirs(&config, client.clone()).await?;
     tracing::info!("Mirroring the following subdirs: {:?}", subdirs);
 
-    let max_parallel = 32;
+    let max_parallel = config.number_of_threads_per_subdir as usize;
     let multi_progress = Arc::new(MultiProgress::new());
     let semaphore = Arc::new(Semaphore::new(max_parallel));
 
@@ -341,8 +341,7 @@ async fn dispatch_tasks_add(
                     .expect("Semaphore was unexpectedly closed");
                 let mut local_progresss_spinner = mpb.insert_after(&pb, ProgressBar::new_spinner());
                 local_progresss_spinner.set_message(format!(
-                    "Mirroring {} {}",
-                    subdir.as_str(),
+                    "Mirroring {}",
                     console::style(&filename).dim()
                 ));
 
