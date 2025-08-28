@@ -28,6 +28,7 @@ use tokio::{io::AsyncReadExt, sync::{Mutex, Semaphore}};
 use generic_array::{typenum::U16, ArrayLength, GenericArray};
 use hex::decode;
 use std::convert::TryInto;
+use opendal::Scheme;
 
 pub mod config;
 use config::{CondaMirrorConfig, MirrorMode};
@@ -357,6 +358,19 @@ async fn dispatch_tasks_add(
                             if dest_md5_array == md5 {
                                 needs_download = false;
                                 tracing::debug!("Skipping the download of {} package from the {} subdir", filename, subdir.as_str())
+                            }
+                        }
+                    }
+                }
+
+                // See if we can skip this if it has not been already and the
+                // SHA256 matchs from what is already on file
+                if (needs_download == true) && op.info().scheme() == Scheme::Fs {
+                    if let Ok(buf) = op.read(&destination_path).await {
+                        let on_disk_digest: Sha256Hash = compute_bytes_digest::<sha2::Sha256>(&(buf.to_bytes()));
+                        if let Some(expected_digest) = package_record.sha256 {
+                            if on_disk_digest == expected_digest {
+                                needs_download = false;
                             }
                         }
                     }
