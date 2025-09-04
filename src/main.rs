@@ -51,6 +51,18 @@ async fn main() -> miette::Result<()> {
         yaml_config.subdirs.clone()
     };
 
+    let max_retries = if let Some(max_retries) = yaml_config.max_retries {
+        max_retries
+    } else {
+        cli_config.max_retries
+    };
+
+    let number_of_threads_per_subdir = if let Some(number_of_threads_per_subdir) = yaml_config.number_of_threads_per_subdir {
+        number_of_threads_per_subdir
+    } else {
+        cli_config.number_of_threads_per_subdir
+    };
+
     let mode = match (yaml_config.include, yaml_config.exclude) {
         (Some(include), Some(exclude)) => MirrorMode::IncludeExclude(include, exclude),
         (Some(include), None) => MirrorMode::OnlyInclude(include),
@@ -136,6 +148,8 @@ async fn main() -> miette::Result<()> {
         destination,
         subdirs,
         mode,
+        max_retries,
+        number_of_threads_per_subdir,
         s3_config_source,
         s3_config_destination,
         s3_credentials_source,
