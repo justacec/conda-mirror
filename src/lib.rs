@@ -119,7 +119,7 @@ pub async fn mirror(config: CondaMirrorConfig) -> miette::Result<()> {
     let subdirs = get_subdirs(&config, client.clone()).await?;
     tracing::info!("Mirroring the following subdirs: {:?}", subdirs);
 
-    let max_parallel = config.number_of_threads_per_subdir as usize;
+    let max_parallel = config.number_of_threads as usize;
     let multi_progress = Arc::new(MultiProgress::new());
     let semaphore = Arc::new(Semaphore::new(max_parallel));
 
