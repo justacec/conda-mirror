@@ -351,6 +351,7 @@ async fn dispatch_tasks_add(
                 let destination_path = format!("{}/{}", subdir.as_str(), filename);
 
                 let mut needs_download = true;
+                /*
                 if let Some(md5) = package_record.md5 {
                     if let Ok(metadata) = op.stat(&destination_path).await {
                         if let Some(dest_md5) = metadata.content_md5() {
@@ -368,14 +369,16 @@ async fn dispatch_tasks_add(
                 if (needs_download == true) && op.info().scheme() == Scheme::Fs {
                     if let Ok(buf) = op.read(&destination_path).await {
                         let on_disk_digest: Sha256Hash = compute_bytes_digest::<sha2::Sha256>(&(buf.to_bytes()));
+                        println!("The SHA256 for {} is {:?}", destination_path, on_disk_digest[0]);
                         if let Some(expected_digest) = package_record.sha256 {
+                            println!("Checking for hash... between {} and {}", on_disk_digest[0], expected_digest[0]);
                             if on_disk_digest == expected_digest {
                                 needs_download = false;
                             }
                         }
                     }
                 }
-
+*/
                 if needs_download == true {
                     // use rattler client for downloading the package
                     let package_url = config.package_url(filename.as_str(), subdir)?;
